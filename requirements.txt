@@ -1,8 +1,6 @@
 bcrypt
-crypography
 fastapi
 python-jose
 python-multipart
 SQLAlchemy
 uvicorn
-passlib
