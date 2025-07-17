@@ -9,11 +9,6 @@ from typing import List, Optional
 from datetime import date
 from model import Order,OrderItem
 from sqlalchemy.orm import joinedload
-from fastapi.security import OAuth2PasswordRequestForm,OAuth2PasswordBearer
-from jose import JWTError,jwt
-from datetime import datetime,timedelta
-from passlib.context import CryptContext
-
 
 from pydantic import BaseModel
 from typing import List, Optional
@@ -21,6 +16,7 @@ from datetime import date
 Base.metadata.create_all(bind=Egine)
 
 app = FastAPI()
+
 
 app.mount("/static", StaticFiles(directory="C:\\Users\\basir\\Desktop\\Mes Revisions\\react1\\Restaurant\\static"), name="static")
 
@@ -220,11 +216,3 @@ def delete_order(order_id: int, db: Session = Depends(get_db)):
     db.delete(db_order)
     db.commit()
     return {"message": "Commande supprimée"}
-
-oauthh2_scheme =OAuth2PasswordBearer(tokenUrl="token")
-
-origins = [
-    "http://localhost:3000"
-]
-
-pwd_context = CryptContext(schemes=["bcrypt"],deprecated="auto")
