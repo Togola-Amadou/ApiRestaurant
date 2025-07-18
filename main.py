@@ -17,9 +17,8 @@ Base.metadata.create_all(bind=Egine)
 
 app = FastAPI()
 
-
-app.mount("/static", StaticFiles(directory="C:\\Users\\basir\\Desktop\\Mes Revisions\\react1\\Restaurant\\static"), name="static")
-
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 # Autoriser le frontend (React)
 app.add_middleware(
     CORSMiddleware,
