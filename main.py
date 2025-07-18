@@ -14,11 +14,19 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import date
 Base.metadata.create_all(bind=Egine)
+import os
 
 app = FastAPI()
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
+
+# Assure-toi que le dossier existe
+if not os.path.isdir("static"):
+    os.mkdir("static")
+if not os.path.isdir("static/Restaurant"):
+    os.mkdir("static/Restaurant")
+
+# Monter le dossier static
+app.mount("/static", StaticFiles(directory="static"), name="static")
 # Autoriser le frontend (React)
 app.add_middleware(
     CORSMiddleware,
