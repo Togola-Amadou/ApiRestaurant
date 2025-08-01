@@ -1,71 +1,44 @@
-from fastapi import FastAPI, HTTPException, Depends
-from sqlalchemy.orm import Session
-from model import Product
-from database import Egine,Base,Session_Local
+from fastapi import FastAPI, UploadFile, File, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
-from datetime import date
-from model import Order,OrderItem
-from sqlalchemy.orm import joinedload
 import os
-from pydantic import BaseModel
-from typing import List, Optional
-from datetime import date
+from database import Base, Egine, Session_Local
+from model import Produit, Order, OrderItem
+
 Base.metadata.create_all(bind=Egine)
-import os
 
 app = FastAPI()
 
-
-# Assure-toi que le dossier existe
-if not os.path.isdir("static"):
-    os.mkdir("static")
-if not os.path.isdir("static/Restaurant"):
-    os.mkdir("static/Restaurant")
-
-# Monter le dossier static
-app.mount("/static", StaticFiles(directory="static"), name="static")
-# Autoriser le frontend (React)
+# CORS pour React ou mobile
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # ou ["http://localhost:3000"] pour sécuriser
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-from pydantic import BaseModel
+# Static images
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
-class ProductBase(BaseModel):
+# ----------------- SCHEMAS -------------------
+
+class ProduitBase(BaseModel):
     nom: str
-    description: str
+    description: Optional[str]
     prix: int
     dispo: bool = True
-    image_url: str 
+    image_url: Optional[str]
     quantite: int
 
-class ProductCreate(ProductBase):
-    pass
-
-class ProductUpdate(ProductBase):
-    pass
-
-class ProductRead(ProductBase):
+class ProduitCreate(ProduitBase): pass
+class ProduitRead(ProduitBase):
     id: int
-
     class Config:
         orm_mode = True
-
-
-def get_db():
-    db = Session_Local()
-    try:
-        yield db
-
-    finally:
-        db.close()
 
 class OrderItemCreate(BaseModel):
     product_id: int
@@ -73,12 +46,8 @@ class OrderItemCreate(BaseModel):
 
 class OrderItemRead(OrderItemCreate):
     id: int
-
     class Config:
         orm_mode = True
-
-
-
 
 class OrderCreate(BaseModel):
     client_name: str
@@ -94,51 +63,39 @@ class OrderRead(BaseModel):
     table: Optional[str]
     statuts: str
     items: List[OrderItemRead]
-
     class Config:
         orm_mode = True
 
-@app.post("/Restau/Produit/", response_model=ProductRead)
-def create_product(product: ProductCreate, db: Session = Depends(get_db)):
-    new_product = Product(**product.dict())
-    db.add(new_product)
+# ----------------- UTILS -------------------
+def get_db():
+    db = Session_Local()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# ----------------- UPLOAD -------------------
+@app.post("/upload-image/")
+def upload(file: UploadFile = File(...)):
+    path = f"static/{file.filename}"
+    with open(path, "wb") as f:
+        f.write(file.file.read())
+    return {"url": f"/static/{file.filename}"}
+
+# ----------------- PRODUITS -------------------
+@app.post("/Restau/Produit/", response_model=ProduitRead)
+def create_produit(produit: ProduitCreate, db: Session = Depends(get_db)):
+    db_produit = Produit(**produit.dict())
+    db.add(db_produit)
     db.commit()
-    db.refresh(new_product)
-    return new_product
+    db.refresh(db_produit)
+    return db_produit
 
-@app.get("/Restau/Produit/", response_model=list[ProductRead])
-def read_products(db: Session = Depends(get_db)):
-    return db.query(Product).all()
+@app.get("/Restau/Produit/", response_model=List[ProduitRead])
+def get_produits(db: Session = Depends(get_db)):
+    return db.query(Produit).all()
 
-@app.get("/Restau/Produit/{product_id}", response_model=ProductRead)
-def read_product(product_id: int, db: Session = Depends(get_db)):
-    product = db.query(Product).get(product_id)
-    if not product:
-        raise HTTPException(status_code=404, detail="Produit non trouve")
-    return product
-
-@app.put("/Restau/Produit/{product_id}", response_model=ProductRead)
-def update_product(product_id: int, product: ProductUpdate, db: Session = Depends(get_db)):
-    db_product = db.query(Product).get(product_id)
-    if not db_product:
-        raise HTTPException(status_code=404, detail="Produit non trouve")
-    for field, value in product.dict().items():
-        setattr(db_product, field, value)
-    db.commit()
-    db.refresh(db_product)
-    return db_product
-
-@app.delete("/Restau/Produit/{product_id}")
-def delete_product(product_id: int, db: Session = Depends(get_db)):
-    db_product = db.query(Product).get(product_id)
-    if not db_product:
-        raise HTTPException(status_code=404, detail="Produit non trouve")
-    db.delete(db_product)
-    db.commit()
-    return {"message": "Produit supprime"}
-# -----------------------
-# POST /orders/
-# -----------------------
+# ----------------- COMMANDES -------------------
 @app.post("/Restau/orders/")
 def create_order(order: OrderCreate, db: Session = Depends(get_db)):
     db_order = Order(
@@ -152,6 +109,12 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
     db.refresh(db_order)
 
     for item in order.items:
+        product = db.query(Produit).get(item.product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="Produit introuvable")
+        if product.quantite < item.quantite:
+            raise HTTPException(status_code=400, detail=f"Stock insuffisant pour {product.nom}")
+        product.quantite -= item.quantite
         db_item = OrderItem(
             order_id=db_order.id,
             product_id=item.product_id,
@@ -160,66 +123,21 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
         db.add(db_item)
 
     db.commit()
-    db.refresh(db_order)
     return {"message": "Commande créée avec succès", "order_id": db_order.id}
-
-# -----------------------
-# GET /orders/
-# -----------------------
 
 @app.get("/Restau/orders/", response_model=List[OrderRead])
 def get_orders(db: Session = Depends(get_db)):
-    orders = db.query(Order).options(joinedload(Order.items)).all()
-    return orders
-
-@app.get("/Restau/orders/{order_id}", response_model=OrderRead)
-def get_order(order_id: int, db: Session = Depends(get_db)):
-    order = db.query(Order).options(joinedload(Order.items)).get(order_id)
-    if not order:
-        raise HTTPException(status_code=404, detail="Commande non trouvée")
-    return order
+    return db.query(Order).options(joinedload(Order.items)).all()
 
 
-# -----------------------
-# PUT /orders/{order_id}
-# -----------------------
-@app.put("/Restau/orders/{order_id}", response_model=OrderRead)
-def update_order(order_id: int, order: OrderCreate, db: Session = Depends(get_db)):
-    db_order = db.query(Order).get(order_id)
-    if not db_order:
-        raise HTTPException(status_code=404, detail="Commande non trouvée")
+from fastapi import Query
 
-    db_order.client_name = order.client_name
-    db_order.tel = order.tel
-    db_order.table = order.table
-    db_order.date = order.date
-    db_order.statuts = order.statuts
-
-    # Supprime les anciens items
-    db.query(OrderItem).filter(OrderItem.order_id == db_order.id).delete()
+@app.patch("/Restau/Produit/{id}/stock")
+def update_stock(id: int, quantite: int = Query(...), db: Session = Depends(get_db)):
+    produit = db.query(Produit).get(id)
+    if not produit:
+        raise HTTPException(status_code=404, detail="Produit non trouvé")
+    produit.quantite = quantite
     db.commit()
-
-    # Ajoute les nouveaux items
-    for item in order.items:
-        db_item = OrderItem(
-            order_id=db_order.id,
-            product_id=item.product_id,
-            quantite=item.quantite
-        )
-        db.add(db_item)
-
-    db.commit()
-    db.refresh(db_order)
-    return db_order
-
-# -----------------------
-# DELETE /orders/{order_id}
-# -----------------------
-@app.delete("/Restau/orders/{order_id}")
-def delete_order(order_id: int, db: Session = Depends(get_db)):
-    db_order = db.query(Order).get(order_id)
-    if not db_order:
-        raise HTTPException(status_code=404, detail="Commande non trouvée")
-    db.delete(db_order)
-    db.commit()
-    return {"message": "Commande supprimée"}
+    db.refresh(produit)
+    return {"message": f"Quantité du produit {produit.nom} mise à jour à {produit.quantite}"}
