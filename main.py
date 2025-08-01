@@ -95,6 +95,15 @@ def create_produit(produit: ProduitCreate, db: Session = Depends(get_db)):
 def get_produits(db: Session = Depends(get_db)):
     return db.query(Produit).all()
 
+
+@app.delete("/Restau/Produit/{id}")
+def delete_produit(id: int, db: Session = Depends(get_db)):
+    produit = db.query(Produit).get(id)
+    if not produit:
+        raise HTTPException(status_code=404, detail="Produit non trouvé")
+    db.delete(produit)
+    db.commit()
+    return {"message": "Produit supprimé avec succès"}  
 # ----------------- COMMANDES -------------------
 @app.post("/Restau/orders/")
 def create_order(order: OrderCreate, db: Session = Depends(get_db)):
